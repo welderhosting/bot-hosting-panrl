@@ -1,2 +1,6 @@
-npm run createuser <username> <password> <role> 
 
+
+
+```bash
+npm run createuser <username> <password> <role> 
+```
