@@ -4,7 +4,8 @@ import {
   FileText, Settings, Activity, Cpu, HardDrive, Clock, 
   ChevronRight, AlertCircle, ExternalLink, Code2, Save, 
   Undo2, FolderOpen, FileCode, HelpCircle, CheckCircle2, RefreshCw, X,
-  Shield, ShieldAlert, Zap, Lock, Key, Users, Sliders, LogOut, UserPlus, Eye, EyeOff
+  Shield, ShieldAlert, Zap, Lock, Key, Users, Sliders, LogOut, UserPlus, Eye, EyeOff,
+  Folder, FolderPlus, Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ServerConfig, ProjectFile, UserAccount, PanelSettings } from './types';
@@ -61,6 +62,11 @@ export default function App() {
   const [isSavingFile, setIsSavingFile] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>('');
   const [isCreatingFile, setIsCreatingFile] = useState<boolean>(false);
+  const [currentPath, setCurrentPath] = useState<string>('');
+  const [isCreatingFolder, setIsCreatingFolder] = useState<boolean>(false);
+  const [newFolderName, setNewFolderName] = useState<string>('');
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Live Logs State
   const [logs, setLogs] = useState<string>('');
@@ -438,23 +444,86 @@ export default function App() {
 
   const handleCreateFile = async () => {
     if (!selectedServer || !newFileName) return;
+    const finalFilename = currentPath ? `${currentPath}/${newFileName}` : newFileName;
     try {
       const res = await authFetch(`/api/servers/${selectedServer.id}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: newFileName, content: '# New File Created' })
+        body: JSON.stringify({ filename: finalFilename, content: '# New File Created' })
       });
       if (res.ok) {
         setNewFileName('');
         setIsCreatingFile(false);
         await fetchFiles();
-        loadFileContent(newFileName);
+        loadFileContent(finalFilename);
       } else {
         const data = await res.json();
         alert(data.error || 'Failed to create file');
       }
     } catch (err) {
       console.error('Error creating file:', err);
+    }
+  };
+
+  const handleCreateFolder = async () => {
+    if (!selectedServer || !newFolderName) return;
+    const finalFolderName = currentPath ? `${currentPath}/${newFolderName}` : newFolderName;
+    try {
+      const res = await authFetch(`/api/servers/${selectedServer.id}/folders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderName: finalFolderName })
+      });
+      if (res.ok) {
+        setNewFolderName('');
+        setIsCreatingFolder(false);
+        await fetchFiles();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to create folder');
+      }
+    } catch (err) {
+      console.error('Error creating folder:', err);
+    }
+  };
+
+  const handleFileUpload = async (file: File) => {
+    if (!selectedServer) return;
+    setIsUploading(true);
+    setUploadError(null);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Content = (reader.result as string).split(',')[1];
+        const finalFilename = currentPath ? `${currentPath}/${file.name}` : file.name;
+
+        const res = await authFetch(`/api/servers/${selectedServer.id}/files/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: finalFilename,
+            content: base64Content,
+            isBase64: true
+          })
+        });
+
+        if (res.ok) {
+          await fetchFiles();
+        } else {
+          const data = await res.json();
+          setUploadError(data.error || 'Failed to upload file');
+        }
+        setIsUploading(false);
+      };
+      reader.onerror = () => {
+        setUploadError('Failed to read selected file');
+        setIsUploading(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Error uploading file:', err);
+      setUploadError((err as Error).message);
+      setIsUploading(false);
     }
   };
 
@@ -1028,108 +1097,118 @@ export default function App() {
               /* ------------------------------------------- */
               /* DEDICATED COCKPIT / SERVER MANAGEMENT VIEW  */
               /* ------------------------------------------- */
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6" id="server_cockpit">
-                {/* Left Side: Sidebar navigation & Mini status card */}
-                <div className="lg:col-span-1 space-y-4">
-                  {/* Back to server list button */}
-                  <button
-                    onClick={() => {
-                      setSelectedServer(null);
-                      fetchServers();
-                    }}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-gray-300 hover:text-white rounded-xl transition-all cursor-pointer text-xs font-bold shadow-xs"
-                  >
-                    ← Back to Servers List
-                  </button>
-
-                  {/* Server Status Dashboard card */}
-                  <div className="bg-[#0e1526]/80 border border-slate-800/80 rounded-2xl p-5 space-y-4 shadow-sm relative overflow-hidden">
-                    <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${selectedServer.language === 'node' ? 'from-emerald-500 to-teal-500' : 'from-blue-500 to-cyan-500'}`} />
+              <div className="space-y-6" id="server_cockpit">
+                {/* Top Action & Status Deck (Full Width) */}
+                <div className="bg-[#0e1526]/95 border border-slate-850 rounded-2xl p-5 shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${selectedServer.language === 'node' ? 'from-emerald-500 to-teal-500' : 'from-blue-500 to-cyan-500'}`} />
+                  
+                  {/* Left part: Back button + Server Name & Status */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    <button
+                      onClick={() => {
+                        setSelectedServer(null);
+                        fetchServers();
+                      }}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-gray-300 hover:text-white rounded-xl transition-all cursor-pointer text-xs font-bold shadow-xs shrink-0"
+                    >
+                      ← Back to List
+                    </button>
                     
-                    <div className="space-y-1.5">
-                      <span className="text-[10px] text-gray-500 font-bold uppercase block">ACTIVE DECK</span>
-                      <h3 className="font-black text-white text-md tracking-tight truncate" title={selectedServer.name}>
-                        {selectedServer.name}
-                      </h3>
-                      <div className="flex items-center gap-1.5 mt-1">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-gray-500 font-extrabold uppercase font-mono px-2 py-0.5 bg-slate-950 rounded border border-slate-900">ACTIVE COCKPIT</span>
                         <span className={`w-2 h-2 rounded-full ${
                           selectedServer.status === 'running' ? 'bg-emerald-500 animate-pulse' : 
                           selectedServer.status === 'building' ? 'bg-blue-500 animate-pulse' : 
                           selectedServer.status === 'error' ? 'bg-rose-500' : 'bg-slate-500'
                         }`} />
-                        <span className="text-xs font-bold text-gray-300 capitalize font-mono">
+                        <span className="text-[11px] font-bold text-gray-400 capitalize font-mono">
                           {selectedServer.status}
                         </span>
                       </div>
+                      <h3 className="font-black text-white text-lg tracking-tight truncate max-w-[280px] sm:max-w-[400px]" title={selectedServer.name}>
+                        {selectedServer.name}
+                      </h3>
                     </div>
+                  </div>
 
-                    {/* Controls Grid */}
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-900/60">
+                  {/* Right part: Container Isolation Specs & Controls */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Controls */}
+                    <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-900">
                       {selectedServer.status === 'running' ? (
                         <button
                           onClick={() => handleStopBot(selectedServer.id)}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-rose-950/60 hover:bg-rose-900 border border-rose-500/20 text-rose-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                          className="flex items-center justify-center gap-1.5 px-4 py-2 bg-rose-950/60 hover:bg-rose-900 border border-rose-500/20 text-rose-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
                         >
-                          <Square className="h-3 w-3 fill-rose-300" /> Stop
+                          <Square className="h-3.5 w-3.5 fill-rose-300" /> Stop
                         </button>
                       ) : (
                         <button
                           onClick={() => handleStartBot(selectedServer.id)}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-500/20 text-emerald-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                          className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-500/20 text-emerald-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
                         >
-                          <Play className="h-3 w-3 fill-emerald-300" /> Start
+                          <Play className="h-3.5 w-3.5 fill-emerald-300" /> Start
                         </button>
                       )}
 
                       <button
                         onClick={() => handleRestartBot(selectedServer.id)}
-                        className="w-full flex items-center justify-center gap-1 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
                         title="Restart Service"
                       >
-                        <RotateCw className="h-3 w-3" /> Restart
+                        <RotateCw className="h-3.5 w-3.5" /> Restart
                       </button>
                     </div>
                   </div>
-
-                  {/* Navigation Tab Menu */}
-                  <div className="bg-[#0e1526]/80 border border-slate-800/80 rounded-2xl p-2.5 flex flex-col gap-1 shadow-sm">
-                    <button
-                      onClick={() => setDrawerTab('logs')}
-                      className={`w-full px-4 py-3 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
-                        drawerTab === 'logs' ? 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/20 shadow-xs' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border border-transparent'
-                      }`}
-                    >
-                      <Terminal className="h-4 w-4" /> Live Terminal Console
-                    </button>
-                    <button
-                      onClick={() => setDrawerTab('monitor')}
-                      className={`w-full px-4 py-3 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
-                        drawerTab === 'monitor' ? 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/20 shadow-xs' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border border-transparent'
-                      }`}
-                    >
-                      <Activity className="h-4 w-4" /> Resource Monitoring
-                    </button>
-                    <button
-                      onClick={() => setDrawerTab('files')}
-                      className={`w-full px-4 py-3 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
-                        drawerTab === 'files' ? 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/20 shadow-xs' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border border-transparent'
-                      }`}
-                    >
-                      <Code2 className="h-4 w-4" /> Source Code Editor
-                    </button>
-                    <button
-                      onClick={() => setDrawerTab('settings')}
-                      className={`w-full px-4 py-3 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
-                        drawerTab === 'settings' ? 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/20 shadow-xs' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border border-transparent'
-                      }`}
-                    >
-                      <Settings className="h-4 w-4" /> Bot Config & Protectors
-                    </button>
-                  </div>
                 </div>
 
-                {/* Right Side: Primary interactive workspace */}
-                <div className="lg:col-span-3 bg-[#0c1221]/90 border border-slate-800 rounded-2xl p-6 shadow-sm min-h-[500px]" id="server_sub_tab_container">
+                {/* Horizontal Navigation Tab Menu (Detached top row) */}
+                <div className="flex flex-wrap items-center gap-3" id="cockpit_detached_tabs">
+                  <button
+                    onClick={() => setDrawerTab('logs')}
+                    className={`flex-1 min-w-[140px] px-4 py-3.5 rounded-2xl text-center text-xs font-bold transition-all flex items-center justify-center gap-2.5 cursor-pointer shadow-md border ${
+                      drawerTab === 'logs' 
+                        ? 'bg-[#0f2a3a] text-cyan-400 border-cyan-500/40 shadow-cyan-950/30' 
+                        : 'bg-[#0c1221] text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border-slate-850'
+                    }`}
+                  >
+                    <Terminal className="h-4 w-4" /> Live Console
+                  </button>
+                  <button
+                    onClick={() => setDrawerTab('monitor')}
+                    className={`flex-1 min-w-[140px] px-4 py-3.5 rounded-2xl text-center text-xs font-bold transition-all flex items-center justify-center gap-2.5 cursor-pointer shadow-md border ${
+                      drawerTab === 'monitor' 
+                        ? 'bg-[#0f2a3a] text-cyan-400 border-cyan-500/40 shadow-cyan-950/30' 
+                        : 'bg-[#0c1221] text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border-slate-850'
+                    }`}
+                  >
+                    <Activity className="h-4 w-4" /> Resource Monitoring
+                  </button>
+                  <button
+                    onClick={() => setDrawerTab('files')}
+                    className={`flex-1 min-w-[140px] px-4 py-3.5 rounded-2xl text-center text-xs font-bold transition-all flex items-center justify-center gap-2.5 cursor-pointer shadow-md border ${
+                      drawerTab === 'files' 
+                        ? 'bg-[#0f2a3a] text-cyan-400 border-cyan-500/40 shadow-cyan-950/30' 
+                        : 'bg-[#0c1221] text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border-slate-850'
+                    }`}
+                  >
+                    <Code2 className="h-4 w-4" /> Source Code Editor
+                  </button>
+                  <button
+                    onClick={() => setDrawerTab('settings')}
+                    className={`flex-1 min-w-[140px] px-4 py-3.5 rounded-2xl text-center text-xs font-bold transition-all flex items-center justify-center gap-2.5 cursor-pointer shadow-md border ${
+                      drawerTab === 'settings' 
+                        ? 'bg-[#0f2a3a] text-cyan-400 border-cyan-500/40 shadow-cyan-950/30' 
+                        : 'bg-[#0c1221] text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border-slate-850'
+                    }`}
+                  >
+                    <Settings className="h-4 w-4" /> Bot Config & Protectors
+                  </button>
+                </div>
+
+                {/* Full-Width Interactive Workspace Area */}
+                <div className="w-full bg-[#0c1221]/90 border border-slate-800 rounded-2xl p-6 shadow-sm min-h-[500px]" id="server_sub_tab_container">
                   
                   {/* TAB A: INTERACTIVE CONSOLE */}
                   {drawerTab === 'logs' && (
@@ -1297,108 +1376,270 @@ export default function App() {
 
                   {/* TAB C: SOURCE CODE MANAGER */}
                   {drawerTab === 'files' && (
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 h-full min-h-[420px]">
-                      {/* Left File List */}
-                      <div className="md:col-span-1 bg-[#0c1221] border border-slate-850 rounded-xl p-3 flex flex-col gap-3">
-                        <div className="flex items-center justify-between border-b border-slate-900 pb-2">
-                          <span className="text-xs font-bold text-gray-300 flex items-center gap-1.5">
-                            <FolderOpen className="h-3.5 w-3.5 text-cyan-400" /> Files
-                          </span>
-                          <button
-                            onClick={() => setIsCreatingFile(!isCreatingFile)}
-                            className="p-1 hover:bg-slate-800 text-cyan-400 rounded-md transition-colors cursor-pointer"
-                            title="New File"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                          </button>
+                    <div className="space-y-4 flex flex-col h-full">
+                      {/* File Manager Header & Breadcrumb Toolbar */}
+                      <div className="bg-[#080d19] border border-slate-850 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        {/* Left Side: Breadcrumb Navigator */}
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 bg-slate-900 rounded-lg border border-slate-800 text-cyan-400">
+                            <FolderOpen className="h-4 w-4" />
+                          </div>
+                          <div className="flex items-center gap-1.5 text-xs text-gray-300">
+                            <button 
+                              type="button"
+                              onClick={() => { setCurrentPath(''); setSelectedFile(null); }}
+                              className="font-bold hover:text-cyan-400 transition-colors font-mono cursor-pointer"
+                            >
+                              root
+                            </button>
+                            {currentPath.split('/').filter(Boolean).map((part, idx, arr) => (
+                              <React.Fragment key={idx}>
+                                <span className="text-gray-600">/</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newPath = arr.slice(0, idx + 1).join('/');
+                                    setCurrentPath(newPath);
+                                    setSelectedFile(null);
+                                  }}
+                                  className="font-bold hover:text-cyan-400 transition-colors font-mono cursor-pointer"
+                                >
+                                  {part}
+                                </button>
+                              </React.Fragment>
+                            ))}
+                          </div>
+
+                          {currentPath && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const parts = currentPath.split('/');
+                                parts.pop();
+                                setCurrentPath(parts.join('/'));
+                                setSelectedFile(null);
+                              }}
+                              className="ml-2 px-2.5 py-1 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-gray-400 hover:text-white rounded-md text-[11px] font-mono cursor-pointer"
+                            >
+                              ↑ Up One Level
+                            </button>
+                          )}
                         </div>
 
-                        {/* File Creator form inline */}
-                        {isCreatingFile && (
-                          <div className="bg-[#080d19] border border-slate-800 p-2 rounded-lg space-y-2">
+                        {/* Right Side: Action Buttons */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* File Uploader Target */}
+                          <label className="flex items-center gap-1.5 bg-indigo-950/60 hover:bg-indigo-900 border border-indigo-500/30 text-indigo-300 px-3 py-1.5 rounded-xl cursor-pointer transition-all text-xs font-bold">
+                            <Upload className="h-3.5 w-3.5" />
+                            {isUploading ? 'Uploading...' : 'Upload File'}
                             <input 
-                              type="text" 
-                              placeholder="script.js" 
-                              value={newFileName}
-                              onChange={(e) => setNewFileName(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-white focus:outline-hidden"
+                              type="file" 
+                              className="hidden" 
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  handleFileUpload(e.target.files[0]);
+                                }
+                              }}
                             />
-                            <div className="flex gap-1">
-                              <button 
-                                onClick={handleCreateFile}
-                                className="flex-1 py-1 bg-cyan-600 text-white text-[10px] font-bold rounded-sm cursor-pointer"
-                              >
-                                Create
-                              </button>
-                              <button 
-                                onClick={() => setIsCreatingFile(false)}
-                                className="px-2 py-1 bg-slate-800 text-gray-400 text-[10px] font-bold rounded-sm cursor-pointer"
-                              >
-                                X
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                          </label>
 
-                        {/* File lists */}
-                        <div className="flex-1 overflow-y-auto space-y-1 max-h-[350px]">
-                          {projectFiles.map((file) => (
-                            <div
-                              key={file.name}
-                              onClick={() => loadFileContent(file.name)}
-                              className={`flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer transition-all ${
-                                selectedFile === file.name ? 'bg-cyan-950/40 text-cyan-400 border border-cyan-500/20' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/30'
-                              }`}
-                            >
-                              <span className="text-xs flex items-center gap-1.5 font-mono truncate">
-                                <FileCode className="h-3.5 w-3.5 shrink-0" />
-                                {file.name}
-                              </span>
-                              
-                              {/* Delete specific files */}
-                              {file.name !== 'Dockerfile' && file.name !== selectedServer.entryPoint && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteFile(file.name);
-                                  }}
-                                  className="p-1 hover:text-rose-400 rounded-md cursor-pointer transition-all"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              )}
-                            </div>
-                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCreatingFile(!isCreatingFile);
+                              setIsCreatingFolder(false);
+                            }}
+                            className="flex items-center gap-1.5 bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-500/20 text-cyan-400 px-3 py-1.5 rounded-xl transition-all cursor-pointer text-xs font-bold"
+                            title="New File"
+                          >
+                            <Plus className="h-3.5 w-3.5" /> New File
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCreatingFolder(!isCreatingFolder);
+                              setIsCreatingFile(false);
+                            }}
+                            className="flex items-center gap-1.5 bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-xl transition-all cursor-pointer text-xs font-bold"
+                            title="New Folder"
+                          >
+                            <FolderPlus className="h-3.5 w-3.5" /> New Folder
+                          </button>
                         </div>
                       </div>
 
-                      {/* Right Editor */}
-                      <div className="md:col-span-3 flex flex-col border border-slate-850 rounded-xl overflow-hidden bg-slate-950">
+                      {/* Creating Forms */}
+                      {isCreatingFile && (
+                        <div className="bg-[#0c1221] border border-slate-800 p-3 rounded-xl flex items-center gap-3 text-xs max-w-md animate-fade-in">
+                          <input 
+                            type="text" 
+                            placeholder="filename.js" 
+                            value={newFileName}
+                            onChange={(e) => setNewFileName(e.target.value)}
+                            className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-hidden"
+                          />
+                          <button 
+                            type="button"
+                            onClick={handleCreateFile}
+                            className="px-4 py-1.5 bg-cyan-600 text-white font-bold rounded-lg cursor-pointer text-xs"
+                          >
+                            Create File
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setIsCreatingFile(false)}
+                            className="px-3 py-1.5 bg-slate-800 text-gray-400 rounded-lg cursor-pointer text-xs"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+
+                      {isCreatingFolder && (
+                        <div className="bg-[#0c1221] border border-slate-800 p-3 rounded-xl flex items-center gap-3 text-xs max-w-md animate-fade-in">
+                          <input 
+                            type="text" 
+                            placeholder="folder-name" 
+                            value={newFolderName}
+                            onChange={(e) => setNewFolderName(e.target.value)}
+                            className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-hidden"
+                          />
+                          <button 
+                            type="button"
+                            onClick={handleCreateFolder}
+                            className="px-4 py-1.5 bg-emerald-600 text-white font-bold rounded-lg cursor-pointer text-xs"
+                          >
+                            Create Folder
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setIsCreatingFolder(false)}
+                            className="px-3 py-1.5 bg-slate-800 text-gray-400 rounded-lg cursor-pointer text-xs"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+
+                      {uploadError && (
+                        <div className="bg-rose-950/40 border border-rose-500/20 p-3 rounded-xl text-xs text-rose-300">
+                          {uploadError}
+                        </div>
+                      )}
+
+                      {/* Horizontal Files & Folders List (Detached top row selection) */}
+                      <div className="bg-[#080d19]/40 border border-slate-850 rounded-xl p-3">
+                        <span className="text-[10px] text-gray-500 font-extrabold uppercase font-mono block mb-2 px-1">
+                          Items in {currentPath ? `/${currentPath}` : 'root'}
+                        </span>
+                        
+                        <div className="flex flex-wrap gap-2 max-h-[140px] overflow-y-auto p-1">
+                          {/* Render directory children */}
+                          {projectFiles
+                            .filter(file => {
+                              // We only want items directly in currentPath
+                              const parts = file.name.split('/');
+                              if (currentPath === '') {
+                                return parts.length === 1;
+                              } else {
+                                const parent = parts.slice(0, -1).join('/');
+                                return parent === currentPath;
+                              }
+                            })
+                            .map((file) => {
+                              const shortName = file.name.split('/').pop() || file.name;
+                              const isSelected = selectedFile === file.name;
+                              
+                              return (
+                                <div
+                                  key={file.name}
+                                  onClick={() => {
+                                    if (file.isDir) {
+                                      setCurrentPath(file.name);
+                                      setSelectedFile(null);
+                                    } else {
+                                      loadFileContent(file.name);
+                                    }
+                                  }}
+                                  className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer border transition-all ${
+                                    file.isDir 
+                                      ? 'bg-emerald-950/20 hover:bg-emerald-950/40 border-emerald-900/30 text-emerald-400'
+                                      : isSelected
+                                        ? 'bg-cyan-950/50 border-cyan-500/40 text-cyan-400 shadow-md'
+                                        : 'bg-slate-900/40 hover:bg-slate-900/80 border-slate-800 text-gray-300'
+                                  }`}
+                                >
+                                  {file.isDir ? (
+                                    <Folder className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                                  ) : (
+                                    <FileCode className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+                                  )}
+                                  
+                                  <span className="text-xs font-mono font-medium truncate max-w-[150px]">
+                                    {shortName}
+                                  </span>
+
+                                  {/* Delete file/folder */}
+                                  {shortName !== 'Dockerfile' && file.name !== selectedServer.entryPoint && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteFile(file.name);
+                                      }}
+                                      className="p-1 text-gray-500 hover:text-rose-400 rounded-md cursor-pointer transition-colors"
+                                      title={`Delete ${file.isDir ? 'Folder' : 'File'}`}
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                          {projectFiles.filter(file => {
+                            const parts = file.name.split('/');
+                            if (currentPath === '') return parts.length === 1;
+                            const parent = parts.slice(0, -1).join('/');
+                            return parent === currentPath;
+                          }).length === 0 && (
+                            <div className="text-xs text-gray-600 font-mono italic p-2 w-full">
+                              (Empty directory. Create files or subdirectories above)
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Core Editor view (Full-width text area) */}
+                      <div className="flex flex-col border border-slate-850 rounded-2xl overflow-hidden bg-slate-950">
                         {selectedFile ? (
                           <>
                             {/* Editor Header */}
-                            <div className="bg-[#0c1221] px-4 py-2 border-b border-slate-900 flex items-center justify-between text-xs">
-                              <span className="font-mono text-gray-400 text-[11px] flex items-center gap-1">
-                                <FileText className="h-3.5 w-3.5 text-cyan-400" /> Editing: <span className="text-white font-bold">{selectedFile}</span>
+                            <div className="bg-[#0c1221] px-4 py-3 border-b border-slate-900 flex items-center justify-between text-xs">
+                              <span className="font-mono text-gray-400 text-[11px] flex items-center gap-1.5">
+                                <FileText className="h-4 w-4 text-cyan-400" /> Editing: <span className="text-white font-bold">{selectedFile}</span>
                                 {fileContent !== originalContent && <span className="text-amber-400 animate-pulse font-bold ml-1">● UNSAVED</span>}
                               </span>
 
                               <div className="flex items-center gap-2">
                                 {fileContent !== originalContent && (
                                   <button
+                                    type="button"
                                     onClick={() => setFileContent(originalContent)}
-                                    className="flex items-center gap-1 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-gray-300 px-2.5 py-1 rounded-md cursor-pointer transition-all text-[11px]"
+                                    className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-gray-300 px-3 py-1.5 rounded-lg cursor-pointer transition-all text-[11px]"
                                   >
-                                    <Undo2 className="h-3 w-3" /> Revert
+                                    <Undo2 className="h-3.5 w-3.5" /> Revert
                                   </button>
                                 )}
 
                                 <button
+                                  type="button"
                                   onClick={handleSaveFile}
                                   disabled={isSavingFile}
-                                  className="flex items-center gap-1 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold px-3 py-1 rounded-md cursor-pointer transition-all text-[11px]"
+                                  className="flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold px-4 py-1.5 rounded-lg cursor-pointer transition-all text-[11px]"
                                 >
-                                  <Save className="h-3 w-3" /> {isSavingFile ? 'Saving...' : 'Save File'}
+                                  <Save className="h-3.5 w-3.5" /> {isSavingFile ? 'Saving...' : 'Save File'}
                                 </button>
                               </div>
                             </div>
@@ -1408,13 +1649,13 @@ export default function App() {
                               value={fileContent}
                               onChange={(e) => setFileContent(e.target.value)}
                               spellCheck={false}
-                              className="flex-1 w-full bg-[#050810] text-gray-200 font-mono text-xs p-4 focus:outline-hidden focus:ring-0 leading-relaxed resize-none min-h-[380px]"
+                              className="flex-1 w-full bg-[#050810] text-gray-200 font-mono text-xs p-5 focus:outline-hidden focus:ring-0 leading-relaxed resize-none min-h-[420px]"
                             />
                           </>
                         ) : (
-                          <div className="flex-1 flex flex-col items-center justify-center py-20 text-gray-500">
-                            <Code2 className="h-10 w-10 text-slate-700 mb-2" />
-                            <p className="text-xs">Select a project file from the left sidebar to start editing code.</p>
+                          <div className="flex-1 flex flex-col items-center justify-center py-24 text-gray-500">
+                            <Code2 className="h-12 w-12 text-slate-800 mb-2" />
+                            <p className="text-xs">Select a file from the top selection bar to view or modify its contents.</p>
                           </div>
                         )}
                       </div>

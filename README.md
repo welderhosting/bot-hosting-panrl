@@ -1,20 +1,41 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# 🚀 Bot Web Hosting Panel — Installation & Startup Guide
 
-# Run and deploy your AI Studio app
+Follow these sequential command-line instructions to download dependencies, compile static assets, and boot up the Web Hosting Panel.
 
-This contains everything you need to run your app locally.
+---
 
-View your app in AI Studio: https://ai.studio/apps/0db1ebdb-11bb-4acb-9b58-9d33501ca640
+### 1. 📦 Download & Install Project Dependencies
+Run this command at the root directory of the project to download all necessary libraries:
+```bash
+npm install
+```
 
-## Run Locally
+---
 
-**Prerequisites:**  Node.js
+### 2. 🛠️ Build and Compile the Application
+This command builds the React static files with Vite, and packs the TypeScript backend server into a production-ready bundle (`dist/server.cjs`) using `esbuild`:
+```bash
+npm run build
+```
 
+---
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run createuser admin pass admin`
+### 3. 🚦 Start the Server
+You can start the server in either development mode or production mode.
+
+#### Option A: Run in Development Mode (Live reload enabled)
+```bash
+npm run dev
+```
+
+#### Option B: Run in Production Mode (High performance, bundled execution)
+```bash
+npm run start
+```
+
+---
+
+### 🛡️ Default Administrator Credentials
+Upon first launch, the SQLite database is automatically seeded. You can access the panel using:
+- **Username:** `admin`
+- **Password:** `admin`

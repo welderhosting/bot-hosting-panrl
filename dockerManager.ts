@@ -195,20 +195,33 @@ httpd.serve_forever()
     fs.writeFileSync(path.join(serverDir, 'app.log'), `--- SERVICE CREATED: ${new Date().toISOString()} ---\n`);
   },
 
-  // List all files in the server project folder
+  // List all files in the server project folder recursively
   getServerFiles(id: string): { name: string; isDir: boolean; size: number }[] {
     const serverDir = path.join(process.cwd(), 'servers', id);
     if (!fs.existsSync(serverDir)) return [];
     
-    const items = fs.readdirSync(serverDir);
-    return items.map(name => {
-      const stat = fs.statSync(path.join(serverDir, name));
-      return {
-        name,
-        isDir: stat.isDirectory(),
-        size: stat.size
-      };
-    });
+    const files: { name: string; isDir: boolean; size: number }[] = [];
+    const traverse = (dir: string, relativePath = '') => {
+      const items = fs.readdirSync(dir);
+      for (const item of items) {
+        const fullPath = path.join(dir, item);
+        const relName = relativePath ? `${relativePath}/${item}` : item;
+        const stat = fs.statSync(fullPath);
+        
+        files.push({
+          name: relName,
+          isDir: stat.isDirectory(),
+          size: stat.size
+        });
+        
+        if (stat.isDirectory()) {
+          traverse(fullPath, relName);
+        }
+      }
+    };
+    
+    traverse(serverDir);
+    return files;
   },
 
   // Read a single file's content
@@ -223,14 +236,41 @@ httpd.serve_forever()
   // Save/Update a file's content
   writeFile(id: string, filename: string, content: string): void {
     const filePath = path.join(process.cwd(), 'servers', id, filename);
+    const parentDir = path.dirname(filePath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
     fs.writeFileSync(filePath, content, 'utf-8');
   },
 
-  // Delete a file
+  // Save/Update a file's content as raw Buffer (for uploads)
+  writeFileBuffer(id: string, filename: string, buffer: Buffer): void {
+    const filePath = path.join(process.cwd(), 'servers', id, filename);
+    const parentDir = path.dirname(filePath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+    fs.writeFileSync(filePath, buffer);
+  },
+
+  // Create an empty folder
+  createFolder(id: string, folderName: string): void {
+    const folderPath = path.join(process.cwd(), 'servers', id, folderName);
+    if (!fs.existsSync(folderPath)) {
+      fs.mkdirSync(folderPath, { recursive: true });
+    }
+  },
+
+  // Delete a file or directory recursively
   deleteFile(id: string, filename: string): void {
     const filePath = path.join(process.cwd(), 'servers', id, filename);
     if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+      const stat = fs.statSync(filePath);
+      if (stat.isDirectory()) {
+        fs.rmSync(filePath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(filePath);
+      }
     }
   },
 

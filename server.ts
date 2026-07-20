@@ -522,6 +522,47 @@ async function startServer() {
     }
   });
 
+  // File Manager API - Create folder (Protected)
+  app.post('/api/servers/:id/folders', requireAuth, (req, res) => {
+    try {
+      const { folderName } = req.body;
+      if (!folderName) {
+        return res.status(400).json({ error: 'Missing folderName' });
+      }
+
+      // Security validation: Prevent path traversal
+      if (folderName.includes('..') || folderName.startsWith('/') || folderName.startsWith('~')) {
+        return res.status(400).json({ error: 'Invalid folderName security restriction' });
+      }
+
+      dockerManager.createFolder(req.params.id, folderName);
+      res.json({ success: true, message: `Folder ${folderName} created successfully` });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // File Manager API - Upload file (Protected)
+  app.post('/api/servers/:id/files/upload', requireAuth, (req, res) => {
+    try {
+      const { filename, content, isBase64 } = req.body;
+      if (!filename || content === undefined) {
+        return res.status(400).json({ error: 'Missing filename or content payload' });
+      }
+
+      // Security validation: Prevent path traversal
+      if (filename.includes('..') || filename.startsWith('/') || filename.startsWith('~')) {
+        return res.status(400).json({ error: 'Invalid filename security restriction' });
+      }
+
+      const buffer = isBase64 ? Buffer.from(content, 'base64') : Buffer.from(content, 'utf-8');
+      dockerManager.writeFileBuffer(req.params.id, filename, buffer);
+      res.json({ success: true, message: `File ${filename} uploaded successfully` });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   // File Manager API - Delete a file (Protected)
   app.delete('/api/servers/:id/files', requireAuth, (req, res) => {
     try {
