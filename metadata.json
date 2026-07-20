@@ -1,0 +1,8 @@
+{
+  "name": "Docker Bot Hosting Dashboard",
+  "description": "A lightweight web dashboard and hosting panel to deploy, manage, and monitor background bot projects (Node.js and Python) running in isolated Docker containers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
