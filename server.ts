@@ -338,6 +338,19 @@ async function startServer() {
         shieldFirewall, shieldRateLimit, shieldDdos, shieldIpWhitelist, shieldShellAccess
       } = req.body;
       
+      // Restrict resource and core changes to admin only
+      if ((req as any).user.role !== 'admin') {
+        const hasCoreChanges = 
+          (bindingIp !== undefined && bindingIp !== server.bindingIp) ||
+          (bindingPort !== undefined && parseInt(bindingPort, 10) !== server.bindingPort) ||
+          (memoryLimit !== undefined && parseInt(memoryLimit, 10) !== server.memoryLimit) ||
+          (cpuLimit !== undefined && parseFloat(cpuLimit) !== server.cpuLimit);
+
+        if (hasCoreChanges) {
+          return res.status(403).json({ error: 'Access denied: Only administrators can modify core resource allocations (RAM, CPU, IP, and Port).' });
+        }
+      }
+      
       const updates: any = {};
       if (name !== undefined) updates.name = name;
       if (language !== undefined) updates.language = language;
@@ -445,6 +458,30 @@ async function startServer() {
 
       const logs = dockerManager.getLogs(server.id);
       res.json({ logs });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Bot Command Input API - Send interactive command to bot stdin (Protected)
+  app.post('/api/servers/:id/command', requireAuth, (req, res) => {
+    try {
+      const server = dbHelper.getServerById(req.params.id);
+      if (!server) {
+        return res.status(404).json({ error: 'Server not found' });
+      }
+
+      const { command } = req.body;
+      if (command === undefined) {
+        return res.status(400).json({ error: 'Missing command payload' });
+      }
+
+      const success = dockerManager.sendCommand(server.id, command);
+      if (success) {
+        res.json({ success: true, message: 'Command transmitted to stdin successfully' });
+      } else {
+        res.status(400).json({ error: 'Failed to transmit command. Ensure the bot is running.' });
+      }
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

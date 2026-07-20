@@ -66,6 +66,7 @@ export default function App() {
   const [logs, setLogs] = useState<string>('');
   const [logAutoScroll, setLogAutoScroll] = useState<boolean>(true);
   const logsEndRef = useRef<HTMLDivElement | null>(null);
+  const [cmdInput, setCmdInput] = useState<string>('');
 
   // Users Tab State
   const [usersList, setUsersList] = useState<UserAccount[]>([]);
@@ -454,6 +455,31 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error creating file:', err);
+    }
+  };
+
+  const handleSendCommand = async (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!selectedServer || !cmdInput.trim()) return;
+
+    const cmd = cmdInput;
+    setCmdInput('');
+
+    try {
+      const res = await authFetch(`/api/servers/${selectedServer.id}/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd })
+      });
+      if (res.ok) {
+        // Instantly refresh logs
+        fetchLogs();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to send command. Ensure bot is running.');
+      }
+    } catch (err) {
+      console.error('Error sending command:', err);
     }
   };
 
@@ -998,221 +1024,818 @@ export default function App() {
         {/* -------------------------------------- */}
         {panelTab === 'servers' && (
           <div className="space-y-6">
-            {/* Overview Cards */}
-            <section className="grid grid-cols-2 lg:grid-cols-4 gap-4" id="section_overview">
-              <div className="bg-[#0e1526]/80 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Total Projects</p>
-                  <h3 className="text-2xl font-bold text-white mt-1">{totalServers}</h3>
-                </div>
-                <div className="p-2.5 bg-slate-900 rounded-lg text-slate-400 border border-slate-800">
-                  <Server className="h-5 w-5" />
-                </div>
-              </div>
+            {selectedServer ? (
+              /* ------------------------------------------- */
+              /* DEDICATED COCKPIT / SERVER MANAGEMENT VIEW  */
+              /* ------------------------------------------- */
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6" id="server_cockpit">
+                {/* Left Side: Sidebar navigation & Mini status card */}
+                <div className="lg:col-span-1 space-y-4">
+                  {/* Back to server list button */}
+                  <button
+                    onClick={() => {
+                      setSelectedServer(null);
+                      fetchServers();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-gray-300 hover:text-white rounded-xl transition-all cursor-pointer text-xs font-bold shadow-xs"
+                  >
+                    ← Back to Servers List
+                  </button>
 
-              <div className="bg-[#0e1526]/80 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Active Bots</p>
-                  <h3 className="text-2xl font-bold text-emerald-400 mt-1 flex items-baseline gap-1.5">
-                    {runningServers}
-                    {runningServers > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block align-middle" />}
-                  </h3>
-                </div>
-                <div className="p-2.5 bg-emerald-950/30 rounded-lg text-emerald-400 border border-emerald-900/30">
-                  <Activity className="h-5 w-5" />
-                </div>
-              </div>
+                  {/* Server Status Dashboard card */}
+                  <div className="bg-[#0e1526]/80 border border-slate-800/80 rounded-2xl p-5 space-y-4 shadow-sm relative overflow-hidden">
+                    <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${selectedServer.language === 'node' ? 'from-emerald-500 to-teal-500' : 'from-blue-500 to-cyan-500'}`} />
+                    
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] text-gray-500 font-bold uppercase block">ACTIVE DECK</span>
+                      <h3 className="font-black text-white text-md tracking-tight truncate" title={selectedServer.name}>
+                        {selectedServer.name}
+                      </h3>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className={`w-2 h-2 rounded-full ${
+                          selectedServer.status === 'running' ? 'bg-emerald-500 animate-pulse' : 
+                          selectedServer.status === 'building' ? 'bg-blue-500 animate-pulse' : 
+                          selectedServer.status === 'error' ? 'bg-rose-500' : 'bg-slate-500'
+                        }`} />
+                        <span className="text-xs font-bold text-gray-300 capitalize font-mono">
+                          {selectedServer.status}
+                        </span>
+                      </div>
+                    </div>
 
-              <div className="bg-[#0e1526]/80 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Allocated RAM</p>
-                  <h3 className="text-2xl font-bold text-cyan-400 mt-1">{totalAllocatedRam} <span className="text-xs text-gray-400">MB</span></h3>
-                </div>
-                <div className="p-2.5 bg-cyan-950/30 rounded-lg text-cyan-400 border border-cyan-900/30">
-                  <HardDrive className="h-5 w-5" />
-                </div>
-              </div>
+                    {/* Controls Grid */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-900/60">
+                      {selectedServer.status === 'running' ? (
+                        <button
+                          onClick={() => handleStopBot(selectedServer.id)}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-rose-950/60 hover:bg-rose-900 border border-rose-500/20 text-rose-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                        >
+                          <Square className="h-3 w-3 fill-rose-300" /> Stop
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleStartBot(selectedServer.id)}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-500/20 text-emerald-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                        >
+                          <Play className="h-3 w-3 fill-emerald-300" /> Start
+                        </button>
+                      )}
 
-              <div className="bg-[#0e1526]/80 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Shield Protection</p>
-                  <h3 className="text-2xl font-bold text-amber-400 mt-1">{protectionPercent}%</h3>
-                </div>
-                <div className="p-2.5 bg-amber-950/30 rounded-lg text-amber-400 border border-amber-900/30">
-                  <Shield className="h-5 w-5" />
-                </div>
-              </div>
-            </section>
+                      <button
+                        onClick={() => handleRestartBot(selectedServer.id)}
+                        className="w-full flex items-center justify-center gap-1 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                        title="Restart Service"
+                      >
+                        <RotateCw className="h-3 w-3" /> Restart
+                      </button>
+                    </div>
+                  </div>
 
-            {loading && servers.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center py-20 bg-[#0c1220]/40 border border-slate-800/50 rounded-2xl">
-                <div className="animate-spin rounded-full h-8 w-8 border-2 border-cyan-500 border-t-transparent mb-4" />
-                <p className="text-gray-400 text-sm">Synchronizing with system containers...</p>
-              </div>
-            ) : servers.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center py-24 bg-[#0c1220]/40 border border-slate-800/50 border-dashed rounded-2xl p-6">
-                <div className="p-4 bg-slate-900 rounded-full border border-slate-800 mb-4">
-                  <Server className="h-8 w-8 text-slate-500" />
+                  {/* Navigation Tab Menu */}
+                  <div className="bg-[#0e1526]/80 border border-slate-800/80 rounded-2xl p-2.5 flex flex-col gap-1 shadow-sm">
+                    <button
+                      onClick={() => setDrawerTab('logs')}
+                      className={`w-full px-4 py-3 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                        drawerTab === 'logs' ? 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/20 shadow-xs' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border border-transparent'
+                      }`}
+                    >
+                      <Terminal className="h-4 w-4" /> Live Terminal Console
+                    </button>
+                    <button
+                      onClick={() => setDrawerTab('monitor')}
+                      className={`w-full px-4 py-3 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                        drawerTab === 'monitor' ? 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/20 shadow-xs' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border border-transparent'
+                      }`}
+                    >
+                      <Activity className="h-4 w-4" /> Resource Monitoring
+                    </button>
+                    <button
+                      onClick={() => setDrawerTab('files')}
+                      className={`w-full px-4 py-3 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                        drawerTab === 'files' ? 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/20 shadow-xs' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border border-transparent'
+                      }`}
+                    >
+                      <Code2 className="h-4 w-4" /> Source Code Editor
+                    </button>
+                    <button
+                      onClick={() => setDrawerTab('settings')}
+                      className={`w-full px-4 py-3 rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+                        drawerTab === 'settings' ? 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/20 shadow-xs' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/40 border border-transparent'
+                      }`}
+                    >
+                      <Settings className="h-4 w-4" /> Bot Config & Protectors
+                    </button>
+                  </div>
                 </div>
-                <h3 className="text-lg font-semibold text-white">No active bot projects found</h3>
-                <p className="text-gray-400 text-xs max-w-sm mt-1 mb-6">Create your first background bot configuration to begin containerized hosting.</p>
-                <button
-                  onClick={() => setIsCreateOpen(true)}
-                  className="flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-medium text-xs px-5 py-2.5 rounded-xl shadow-lg hover:shadow-cyan-500/20 transition-all cursor-pointer"
-                >
-                  <Plus className="h-4 w-4" />
-                  Configure First Bot
-                </button>
+
+                {/* Right Side: Primary interactive workspace */}
+                <div className="lg:col-span-3 bg-[#0c1221]/90 border border-slate-800 rounded-2xl p-6 shadow-sm min-h-[500px]" id="server_sub_tab_container">
+                  
+                  {/* TAB A: INTERACTIVE CONSOLE */}
+                  {drawerTab === 'logs' && (
+                    <div className="space-y-4 flex flex-col h-full">
+                      <div className="flex items-center justify-between text-xs bg-slate-900/50 p-3 border border-slate-800 rounded-xl">
+                        <span className="text-gray-400 font-mono flex items-center gap-1.5">
+                          <Terminal className="h-4 w-4 text-emerald-400 animate-pulse" /> Live stdout log pipeline stream
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none text-gray-300">
+                            <input 
+                              type="checkbox" 
+                              checked={logAutoScroll} 
+                              onChange={(e) => setLogAutoScroll(e.target.checked)}
+                              className="accent-cyan-500"
+                            />
+                            Auto-Scroll Console
+                          </label>
+                          <button 
+                            onClick={fetchLogs} 
+                            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-gray-300 text-xs px-2.5 py-1 rounded-md cursor-pointer transition-all"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" /> Refresh logs
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Log Terminal Canvas */}
+                      <div className="bg-slate-950 border border-slate-900 rounded-xl p-4 font-mono text-xs overflow-y-auto h-[380px] shadow-inner text-emerald-400 leading-relaxed whitespace-pre-wrap select-text">
+                        {logs ? logs : 'Initializing log buffers... Logs will stream here shortly.'}
+                        <div ref={logsEndRef} />
+                      </div>
+
+                      {/* Interactive Console Terminal Input Command */}
+                      <form onSubmit={handleSendCommand} className="flex gap-2">
+                        <div className="relative flex-1">
+                          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                            <span className="text-emerald-500 font-mono text-xs">bot-srv:~$</span>
+                          </div>
+                          <input 
+                            type="text"
+                            value={cmdInput}
+                            onChange={(e) => setCmdInput(e.target.value)}
+                            placeholder="Enter system terminal command into service stdin (e.g., npm run custom, help, test)..."
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-20 pr-4 py-3.5 text-xs text-white placeholder-gray-600 focus:outline-hidden focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 transition-all font-mono font-semibold"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="px-5 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/10 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <ChevronRight className="h-4 w-4" /> Send Input
+                        </button>
+                      </form>
+                      <div className="text-[10px] text-gray-500 font-mono pl-1">
+                        * Inputs are written directly to standard input (stdin) of the running service.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB B: MONITORING GAUGE VIEW */}
+                  {drawerTab === 'monitor' && (
+                    <div className="space-y-6">
+                      {/* Live Gauges */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* CPU */}
+                        <div className="bg-slate-900/60 p-4 border border-slate-800 rounded-xl flex flex-col justify-between">
+                          <div className="flex items-center justify-between text-gray-400 text-xs">
+                            <span>CPU ALLOCATION</span>
+                            <Cpu className="h-4 w-4 text-indigo-400" />
+                          </div>
+                          <div className="my-4">
+                            <h3 className="text-3xl font-extrabold text-white">
+                              {selectedServer.status === 'running' && selectedServer.metrics ? `${selectedServer.metrics.cpu}%` : '0%'}
+                            </h3>
+                            <span className="text-[10px] text-gray-500 font-mono">Limit: {selectedServer.cpuLimit} cores</span>
+                          </div>
+                          <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                            <div 
+                              className="bg-indigo-500 h-1.5 rounded-full transition-all duration-1000"
+                              style={{ width: `${selectedServer.status === 'running' && selectedServer.metrics ? Math.min((selectedServer.metrics.cpu / selectedServer.cpuLimit) * 100, 100) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Memory */}
+                        <div className="bg-slate-900/60 p-4 border border-slate-800 rounded-xl flex flex-col justify-between">
+                          <div className="flex items-center justify-between text-gray-400 text-xs">
+                            <span>MEMORY IN USE</span>
+                            <HardDrive className="h-4 w-4 text-cyan-400" />
+                          </div>
+                          <div className="my-4">
+                            <h3 className="text-3xl font-extrabold text-white">
+                              {selectedServer.status === 'running' && selectedServer.metrics ? `${selectedServer.metrics.memory} MB` : '0 MB'}
+                            </h3>
+                            <span className="text-[10px] text-gray-500 font-mono">Max Limit: {selectedServer.memoryLimit} MB</span>
+                          </div>
+                          <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                            <div 
+                              className="bg-cyan-500 h-1.5 rounded-full transition-all duration-1000"
+                              style={{ width: `${selectedServer.status === 'running' && selectedServer.metrics ? Math.min((selectedServer.metrics.memory / selectedServer.memoryLimit) * 100, 100) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Uptime */}
+                        <div className="bg-slate-900/60 p-4 border border-slate-800 rounded-xl flex flex-col justify-between">
+                          <div className="flex items-center justify-between text-gray-400 text-xs">
+                            <span>CONTAINER UPTIME</span>
+                            <Clock className="h-4 w-4 text-emerald-400" />
+                          </div>
+                          <div className="my-4">
+                            <h3 className="text-3xl font-extrabold text-white">
+                              {selectedServer.status === 'running' && selectedServer.metrics ? formatUptime(selectedServer.metrics.uptime) : 'Offline'}
+                            </h3>
+                            <span className="text-[10px] text-gray-500 font-mono">Auto-restart active</span>
+                          </div>
+                          <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                            <div 
+                              className={`h-1.5 rounded-full transition-all ${selectedServer.status === 'running' ? 'bg-emerald-500 w-full animate-pulse' : 'bg-slate-800 w-0'}`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Server Configuration Overview */}
+                      <div className="bg-[#0c1221] border border-slate-800/80 rounded-xl p-5">
+                        <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4">Container Isolation Specs</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
+                          <div className="bg-slate-900/40 border border-slate-900 p-3 rounded-lg">
+                            <span className="text-gray-500 block">Runtime Env</span>
+                            <span className="text-gray-200 mt-1 block font-semibold">
+                              {selectedServer.language === 'node' ? `Node.js ${selectedServer.nodeVersion}` : 'Python 3.11'}
+                            </span>
+                          </div>
+                          <div className="bg-slate-900/40 border border-slate-900 p-3 rounded-lg">
+                            <span className="text-gray-500 block">Local Port Bind</span>
+                            <span className="text-gray-200 mt-1 block font-semibold">{selectedServer.bindingIp}:{selectedServer.bindingPort}</span>
+                          </div>
+                          <div className="bg-slate-900/40 border border-slate-900 p-3 rounded-lg">
+                            <span className="text-gray-500 block">Container Type</span>
+                            <span className="text-gray-200 mt-1 block font-semibold">{selectedServer.metrics?.isDocker ? 'Docker Container' : 'Isolated Subprocess'}</span>
+                          </div>
+                          <div className="bg-slate-900/40 border border-slate-900 p-3 rounded-lg">
+                            <span className="text-gray-500 block">Autostart Policy</span>
+                            <span className="text-emerald-400 mt-1 block font-semibold">unless-stopped</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Informational Box */}
+                      <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 text-xs text-gray-400 space-y-2">
+                        <h5 className="font-bold text-gray-300 flex items-center gap-1.5">
+                          <HelpCircle className="h-4 w-4 text-cyan-400" /> Container isolation explanation
+                        </h5>
+                        <p>
+                          Every background project created receives its own unique folder space inside the hosting directory. The runtime system generates a custom <code className="text-gray-200 bg-slate-950 px-1 py-0.5 rounded font-mono">Dockerfile</code>, exposes your custom port binding, and installs package requirements recursively on launch.
+                        </p>
+                        <p>
+                          In emulated process environments (e.g. cloud deployment sandboxes), the engine deploys isolated system subprocesses under strict PID tracking and maps logs and status directly back to SQLite.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB C: SOURCE CODE MANAGER */}
+                  {drawerTab === 'files' && (
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 h-full min-h-[420px]">
+                      {/* Left File List */}
+                      <div className="md:col-span-1 bg-[#0c1221] border border-slate-850 rounded-xl p-3 flex flex-col gap-3">
+                        <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                          <span className="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                            <FolderOpen className="h-3.5 w-3.5 text-cyan-400" /> Files
+                          </span>
+                          <button
+                            onClick={() => setIsCreatingFile(!isCreatingFile)}
+                            className="p-1 hover:bg-slate-800 text-cyan-400 rounded-md transition-colors cursor-pointer"
+                            title="New File"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+
+                        {/* File Creator form inline */}
+                        {isCreatingFile && (
+                          <div className="bg-[#080d19] border border-slate-800 p-2 rounded-lg space-y-2">
+                            <input 
+                              type="text" 
+                              placeholder="script.js" 
+                              value={newFileName}
+                              onChange={(e) => setNewFileName(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-white focus:outline-hidden"
+                            />
+                            <div className="flex gap-1">
+                              <button 
+                                onClick={handleCreateFile}
+                                className="flex-1 py-1 bg-cyan-600 text-white text-[10px] font-bold rounded-sm cursor-pointer"
+                              >
+                                Create
+                              </button>
+                              <button 
+                                onClick={() => setIsCreatingFile(false)}
+                                className="px-2 py-1 bg-slate-800 text-gray-400 text-[10px] font-bold rounded-sm cursor-pointer"
+                              >
+                                X
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* File lists */}
+                        <div className="flex-1 overflow-y-auto space-y-1 max-h-[350px]">
+                          {projectFiles.map((file) => (
+                            <div
+                              key={file.name}
+                              onClick={() => loadFileContent(file.name)}
+                              className={`flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer transition-all ${
+                                selectedFile === file.name ? 'bg-cyan-950/40 text-cyan-400 border border-cyan-500/20' : 'text-gray-400 hover:text-gray-200 hover:bg-slate-900/30'
+                              }`}
+                            >
+                              <span className="text-xs flex items-center gap-1.5 font-mono truncate">
+                                <FileCode className="h-3.5 w-3.5 shrink-0" />
+                                {file.name}
+                              </span>
+                              
+                              {/* Delete specific files */}
+                              {file.name !== 'Dockerfile' && file.name !== selectedServer.entryPoint && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteFile(file.name);
+                                  }}
+                                  className="p-1 hover:text-rose-400 rounded-md cursor-pointer transition-all"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Right Editor */}
+                      <div className="md:col-span-3 flex flex-col border border-slate-850 rounded-xl overflow-hidden bg-slate-950">
+                        {selectedFile ? (
+                          <>
+                            {/* Editor Header */}
+                            <div className="bg-[#0c1221] px-4 py-2 border-b border-slate-900 flex items-center justify-between text-xs">
+                              <span className="font-mono text-gray-400 text-[11px] flex items-center gap-1">
+                                <FileText className="h-3.5 w-3.5 text-cyan-400" /> Editing: <span className="text-white font-bold">{selectedFile}</span>
+                                {fileContent !== originalContent && <span className="text-amber-400 animate-pulse font-bold ml-1">● UNSAVED</span>}
+                              </span>
+
+                              <div className="flex items-center gap-2">
+                                {fileContent !== originalContent && (
+                                  <button
+                                    onClick={() => setFileContent(originalContent)}
+                                    className="flex items-center gap-1 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-gray-300 px-2.5 py-1 rounded-md cursor-pointer transition-all text-[11px]"
+                                  >
+                                    <Undo2 className="h-3 w-3" /> Revert
+                                  </button>
+                                )}
+
+                                <button
+                                  onClick={handleSaveFile}
+                                  disabled={isSavingFile}
+                                  className="flex items-center gap-1 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold px-3 py-1 rounded-md cursor-pointer transition-all text-[11px]"
+                                >
+                                  <Save className="h-3 w-3" /> {isSavingFile ? 'Saving...' : 'Save File'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Textarea code field */}
+                            <textarea
+                              value={fileContent}
+                              onChange={(e) => setFileContent(e.target.value)}
+                              spellCheck={false}
+                              className="flex-1 w-full bg-[#050810] text-gray-200 font-mono text-xs p-4 focus:outline-hidden focus:ring-0 leading-relaxed resize-none min-h-[380px]"
+                            />
+                          </>
+                        ) : (
+                          <div className="flex-1 flex flex-col items-center justify-center py-20 text-gray-500">
+                            <Code2 className="h-10 w-10 text-slate-700 mb-2" />
+                            <p className="text-xs">Select a project file from the left sidebar to start editing code.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB D: BOT CONFIGURATION */}
+                  {drawerTab === 'settings' && (
+                    <form onSubmit={handleUpdateConfig} className="space-y-6">
+                      <div className="bg-[#0c1221] p-5 border border-slate-850 rounded-2xl space-y-4">
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-900 pb-2">
+                          <Sliders className="h-4 w-4 text-cyan-400" /> Bot Core Resources
+                        </h3>
+                        
+                        {editError && (
+                          <div className="bg-rose-950/40 border border-rose-500/20 p-3 rounded-xl text-xs text-rose-300">
+                            {editError}
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                          <div className="space-y-1.5">
+                            <label className="text-gray-400 block font-semibold">Binding Network IP</label>
+                            <input 
+                              type="text" 
+                              required
+                              value={editBindingIp}
+                              onChange={(e) => setEditBindingIp(e.target.value)}
+                              className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-gray-400 block font-semibold">Binding External Port</label>
+                            <input 
+                              type="number" 
+                              required
+                              value={editBindingPort}
+                              onChange={(e) => setEditBindingPort(e.target.value)}
+                              className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-gray-400 block font-semibold">Allocated Memory Limit (MB)</label>
+                            <select 
+                              value={editMemoryLimit}
+                              onChange={(e) => setEditMemoryLimit(parseInt(e.target.value, 10))}
+                              className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden cursor-pointer"
+                            >
+                              <option value={128}>128 MB (Lite Bots)</option>
+                              <option value={256}>256 MB (Standard bots)</option>
+                              <option value={512}>512 MB (Heavy loops / discord.js)</option>
+                              <option value={1024}>1024 MB (1GB Production bots)</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-gray-400 block font-semibold">Allocated CPU Core Limit</label>
+                            <select 
+                              value={editCpuLimit}
+                              onChange={(e) => setEditCpuLimit(parseFloat(e.target.value))}
+                              className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden cursor-pointer"
+                            >
+                              <option value={0.25}>0.25 Cores</option>
+                              <option value={0.5}>0.5 Cores</option>
+                              <option value={1.0}>1.0 Cores (Production default)</option>
+                              <option value={2.0}>2.0 Cores (Enterprise speed)</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-gray-400 block font-semibold">Main Entry point Script</label>
+                            <input 
+                              type="text" 
+                              required
+                              value={editEntryPoint}
+                              onChange={(e) => setEditEntryPoint(e.target.value)}
+                              className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Node select */}
+                          {selectedServer.language === 'node' && (
+                            <div className="space-y-1.5">
+                              <label className="text-gray-400 block font-semibold">Choose Node.js Version</label>
+                              <select 
+                                value={editNodeVersion}
+                                onChange={(e) => setEditNodeVersion(e.target.value)}
+                                className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden cursor-pointer"
+                              >
+                                <option value="24-alpine">Node.js 24 (Alpine)</option>
+                                <option value="22-alpine">Node.js 22 (Alpine)</option>
+                                <option value="20-alpine">Node.js 20 (Alpine)</option>
+                                <option value="18-alpine">Node.js 18 (Alpine)</option>
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Libraries autoloader */}
+                        <div className="space-y-1.5 text-xs pt-2">
+                          <label className="text-gray-400 block font-semibold">Autoload Libraries (Comma-separated)</label>
+                          <input 
+                            type="text" 
+                            placeholder="express, lodash, requests, canvas"
+                            value={editAutoloadLibraries}
+                            onChange={(e) => setEditAutoloadLibraries(e.target.value)}
+                            className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden"
+                          />
+                          <p className="text-[10px] text-gray-500 font-normal mt-1">
+                            Input package names separated by commas. These will automatically build, install, and load when the server begins execution.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Shield configurations */}
+                      <div className="bg-[#0c1221] p-5 border border-slate-850 rounded-2xl space-y-4">
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-900 pb-2">
+                          <Shield className="h-4 w-4 text-amber-500" /> Server Shield Protector Matrix
+                        </h3>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+                          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900 flex items-center justify-between">
+                            <div>
+                              <span className="text-gray-400 block font-bold text-[10px]">ENABLE FIREWALL SHIELD</span>
+                              <span className="text-gray-500 text-[9px]">Filters unauthorized access ports</span>
+                            </div>
+                            <input 
+                              type="checkbox"
+                              checked={editShieldFirewall}
+                              onChange={(e) => setEditShieldFirewall(e.target.checked)}
+                              className="accent-cyan-500 w-4 h-4 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900 flex items-center justify-between">
+                            <div>
+                              <span className="text-gray-400 block font-bold text-[10px]">DDoS ATTACK PROTECTION</span>
+                              <span className="text-gray-500 text-[9px]">Protects buffers from high pings</span>
+                            </div>
+                            <input 
+                              type="checkbox"
+                              checked={editShieldDdos}
+                              onChange={(e) => setEditShieldDdos(e.target.checked)}
+                              className="accent-cyan-500 w-4 h-4 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900 flex items-center justify-between">
+                            <div>
+                              <span className="text-gray-400 block font-bold text-[10px]">RESTRICT SHELL ACCESS</span>
+                              <span className="text-gray-500 text-[9px]">Locks runtime shell commands</span>
+                            </div>
+                            <input 
+                              type="checkbox"
+                              checked={editShieldShellAccess}
+                              onChange={(e) => setEditShieldShellAccess(e.target.checked)}
+                              className="accent-cyan-500 w-4 h-4 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900 flex flex-col justify-between">
+                            <span className="text-gray-400 block font-bold text-[10px]">RATE LIMIT LIMITER</span>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <input 
+                                type="number"
+                                min="0"
+                                value={editShieldRateLimit}
+                                onChange={(e) => setEditShieldRateLimit(e.target.value)}
+                                className="w-16 bg-slate-900 border border-slate-800 rounded px-1 text-center font-bold text-white text-xs py-0.5 focus:outline-hidden"
+                              />
+                              <span className="text-[10px] text-gray-400">requests / second (0 = unlimited)</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5 text-xs font-mono font-bold">
+                          <label className="text-gray-400 block font-sans font-bold">IP PACKET WHITELIST FILTER</label>
+                          <input 
+                            type="text"
+                            placeholder="e.g. 192.168.1.1, 10.0.0.5"
+                            value={editShieldIpWhitelist}
+                            onChange={(e) => setEditShieldIpWhitelist(e.target.value)}
+                            className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-hidden"
+                          />
+                          <p className="text-[10px] text-gray-500 font-sans font-normal">Comma-separated network IPs to exclusively authorize access packages.</p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isUpdatingConfig}
+                        className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all active:scale-98"
+                      >
+                        {isUpdatingConfig ? 'Applying Updates...' : 'Apply Modifications'}
+                      </button>
+                    </form>
+                  )}
+                </div>
               </div>
             ) : (
-              <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="section_servers_grid">
-                {servers.map((server) => {
-                  const isRunning = server.status === 'running';
-                  const isBuilding = server.status === 'building';
-                  const isError = server.status === 'error';
+              /* ------------------------------------------- */
+              /* STANDARD SERVERS LIST HOME VIEW            */
+              /* ------------------------------------------- */
+              <>
+                {/* Overview Cards */}
+                <section className="grid grid-cols-2 lg:grid-cols-4 gap-4" id="section_overview">
+                  <div className="bg-[#0e1526]/80 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Total Projects</p>
+                      <h3 className="text-2xl font-bold text-white mt-1">{totalServers}</h3>
+                    </div>
+                    <div className="p-2.5 bg-slate-900 rounded-lg text-slate-400 border border-slate-800">
+                      <Server className="h-5 w-5" />
+                    </div>
+                  </div>
 
-                  // Calculate active shields
-                  let activeShieldCount = 0;
-                  if (server.shieldFirewall === 1) activeShieldCount++;
-                  if (server.shieldDdos === 1) activeShieldCount++;
-                  if (server.shieldShellAccess === 1) activeShieldCount++;
-                  if (server.shieldRateLimit > 0) activeShieldCount++;
+                  <div className="bg-[#0e1526]/80 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Active Bots</p>
+                      <h3 className="text-2xl font-bold text-emerald-400 mt-1 flex items-baseline gap-1.5">
+                        {runningServers}
+                        {runningServers > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block align-middle" />}
+                      </h3>
+                    </div>
+                    <div className="p-2.5 bg-emerald-950/30 rounded-lg text-emerald-400 border border-emerald-900/30">
+                      <Activity className="h-5 w-5" />
+                    </div>
+                  </div>
 
-                  return (
-                    <div
-                      key={server.id}
-                      id={`card_${server.id}`}
-                      onClick={() => {
-                        setSelectedServer(server);
-                        setDrawerTab('monitor');
-                        setSelectedFile(null);
-                      }}
-                      className="bg-[#0e1526]/80 hover:bg-[#111a30]/90 border border-slate-800/80 hover:border-slate-700/80 rounded-2xl p-5 flex flex-col justify-between shadow-sm cursor-pointer transition-all hover:shadow-md hover:shadow-black/20 group relative overflow-hidden"
+                  <div className="bg-[#0e1526]/80 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Allocated RAM</p>
+                      <h3 className="text-2xl font-bold text-cyan-400 mt-1">{totalAllocatedRam} <span className="text-xs text-gray-400">MB</span></h3>
+                    </div>
+                    <div className="p-2.5 bg-cyan-950/30 rounded-lg text-cyan-400 border border-cyan-900/30">
+                      <HardDrive className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  <div className="bg-[#0e1526]/80 border border-slate-800/80 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Shield Protection</p>
+                      <h3 className="text-2xl font-bold text-amber-400 mt-1">{protectionPercent}%</h3>
+                    </div>
+                    <div className="p-2.5 bg-amber-950/30 rounded-lg text-amber-400 border border-amber-900/30">
+                      <Shield className="h-5 w-5" />
+                    </div>
+                  </div>
+                </section>
+
+                {loading && servers.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 bg-[#0c1220]/40 border border-slate-800/50 rounded-2xl">
+                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-cyan-500 border-t-transparent mb-4" />
+                    <p className="text-gray-400 text-sm">Synchronizing with system containers...</p>
+                  </div>
+                ) : servers.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center py-24 bg-[#0c1220]/40 border border-slate-800/50 border-dashed rounded-2xl p-6">
+                    <div className="p-4 bg-slate-900 rounded-full border border-slate-800 mb-4">
+                      <Server className="h-8 w-8 text-slate-500" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-white">No active bot projects found</h3>
+                    <p className="text-gray-400 text-xs max-w-sm mt-1 mb-6">Create your first background bot configuration to begin containerized hosting.</p>
+                    <button
+                      onClick={() => setIsCreateOpen(true)}
+                      className="flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-medium text-xs px-5 py-2.5 rounded-xl shadow-lg hover:shadow-cyan-500/20 transition-all cursor-pointer"
                     >
-                      {/* Subtle top language gradient strip */}
-                      <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${server.language === 'node' ? 'from-emerald-500 to-teal-500' : 'from-blue-500 to-cyan-500'}`} />
+                      <Plus className="h-4 w-4" />
+                      Configure First Bot
+                    </button>
+                  </div>
+                ) : (
+                  /* SINGLE VERTICAL LIST (NOT SIDE-BY-SIDE GRID) */
+                  <section className="space-y-4" id="section_servers_list">
+                    {servers.map((server) => {
+                      const isRunning = server.status === 'running';
+                      const isBuilding = server.status === 'building';
+                      const isError = server.status === 'error';
 
-                      {/* Card Title Header */}
-                      <div>
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex items-center gap-2.5">
-                            <span className={`w-2.5 h-2.5 rounded-full ${
+                      // Calculate active shields
+                      let activeShieldCount = 0;
+                      if (server.shieldFirewall === 1) activeShieldCount++;
+                      if (server.shieldDdos === 1) activeShieldCount++;
+                      if (server.shieldShellAccess === 1) activeShieldCount++;
+                      if (server.shieldRateLimit > 0) activeShieldCount++;
+
+                      return (
+                        <div
+                          key={server.id}
+                          id={`card_${server.id}`}
+                          onClick={() => {
+                            setSelectedServer(server);
+                            setDrawerTab('logs'); // Default to logs/console as requested
+                            setSelectedFile(null);
+                          }}
+                          className="bg-[#0e1526]/80 hover:bg-[#111a30]/95 border border-slate-800/80 hover:border-slate-700/80 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm cursor-pointer transition-all hover:shadow-md hover:shadow-black/20 group relative overflow-hidden"
+                        >
+                          {/* Language vertical color strip */}
+                          <div className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${server.language === 'node' ? 'from-emerald-500 to-teal-500' : 'from-blue-500 to-cyan-500'}`} />
+
+                          {/* Left: Server Basic Info */}
+                          <div className="flex items-center gap-3 min-w-[200px] max-w-full">
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                               isRunning ? 'bg-emerald-500 animate-pulse' : 
                               isBuilding ? 'bg-blue-500 animate-pulse' : 
                               isError ? 'bg-rose-500' : 'bg-slate-500'
                             }`} />
-                            <h4 className="font-bold text-white text-md tracking-tight truncate max-w-[150px] group-hover:text-cyan-400 transition-colors">
-                              {server.name}
-                            </h4>
-                          </div>
-                          
-                          {/* Language tag */}
-                          <span className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded-full flex items-center gap-1 border ${
-                            server.language === 'node' 
-                              ? 'bg-emerald-950/50 border-emerald-500/20 text-emerald-300' 
-                              : 'bg-blue-950/50 border-blue-500/20 text-blue-300'
-                          }`}>
-                            <Code2 className="h-3 w-3" />
-                            {server.language === 'node' ? `Node.js (${server.nodeVersion})` : 'Python'}
-                          </span>
-                        </div>
-
-                        {/* Shields gauge */}
-                        <div className="flex items-center gap-1.5 mb-3 text-[10px] text-gray-400 font-mono">
-                          <Shield className={`h-3.5 w-3.5 ${activeShieldCount > 0 ? 'text-amber-400 fill-amber-400/10' : 'text-slate-600'}`} />
-                          <span>Shield Protector Matrix:</span>
-                          <span className={`font-bold ${activeShieldCount >= 3 ? 'text-emerald-400' : activeShieldCount > 0 ? 'text-amber-400' : 'text-gray-500'}`}>
-                            {activeShieldCount}/4 Protected
-                          </span>
-                        </div>
-
-                        <div className="text-xs text-gray-400 flex flex-col gap-1 font-mono mb-4">
-                          <div className="flex justify-between border-b border-slate-900 pb-1">
-                            <span>Host Endpoint:</span>
-                            <span className="text-gray-200 font-semibold">{server.bindingIp}:{server.bindingPort}</span>
-                          </div>
-                          {server.autoloadLibraries && (
-                            <div className="flex justify-between border-b border-slate-900 pb-1">
-                              <span>Autoloaded:</span>
-                              <span className="text-cyan-400 font-semibold max-w-[150px] truncate" title={server.autoloadLibraries}>{server.autoloadLibraries}</span>
+                            <div className="space-y-0.5 truncate">
+                              <h4 className="font-bold text-white text-md tracking-tight truncate group-hover:text-cyan-400 transition-colors">
+                                {server.name}
+                              </h4>
+                              <p className="text-xs text-gray-400 font-mono">
+                                Port: <span className="text-gray-200">{server.bindingPort}</span> | Main: <span className="text-gray-300">{server.entryPoint}</span>
+                              </p>
                             </div>
-                          )}
-                          <div className="flex justify-between border-b border-slate-900 pb-1">
-                            <span>Main Script:</span>
-                            <span className="text-gray-300">{server.entryPoint}</span>
                           </div>
-                        </div>
 
-                        {/* Metrics Preview */}
-                        <div className="bg-[#090e19] border border-slate-900 rounded-xl p-3 grid grid-cols-3 gap-2 text-center mb-5 font-mono">
-                          <div>
-                            <span className="text-[10px] text-gray-500 block uppercase font-bold">CPU</span>
-                            <span className={`text-xs font-semibold ${isRunning ? 'text-indigo-400' : 'text-gray-500'}`}>
-                              {isRunning && server.metrics ? `${server.metrics.cpu}%` : '0%'}
+                          {/* Middle-Left: Programming Environment Tag */}
+                          <div className="shrink-0 flex items-center">
+                            <span className={`text-[10px] font-mono font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5 border ${
+                              server.language === 'node' 
+                                ? 'bg-emerald-950/40 border-emerald-500/20 text-emerald-300' 
+                                : 'bg-blue-950/40 border-blue-500/20 text-blue-300'
+                            }`}>
+                              <Code2 className="h-3.5 w-3.5" />
+                              {server.language === 'node' ? `Node.js (${server.nodeVersion})` : 'Python'}
                             </span>
                           </div>
-                          <div className="border-x border-slate-900">
-                            <span className="text-[10px] text-gray-500 block uppercase font-bold">Memory</span>
-                            <span className={`text-xs font-semibold ${isRunning ? 'text-cyan-400' : 'text-gray-500'}`}>
-                              {isRunning && server.metrics ? `${server.metrics.memory} MB` : '0 MB'}
-                            </span>
+
+                          {/* Middle: Metrics info row */}
+                          <div className="flex-1 grid grid-cols-3 gap-2 max-w-md font-mono text-center md:text-left text-xs">
+                            <div>
+                              <span className="text-[10px] text-gray-500 block uppercase font-bold">CPU Usage</span>
+                              <span className={`font-semibold ${isRunning ? 'text-indigo-400' : 'text-gray-500'}`}>
+                                {isRunning && server.metrics ? `${server.metrics.cpu}% / ${server.cpuLimit} cores` : `0% / ${server.cpuLimit} cores`}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-gray-500 block uppercase font-bold">Memory</span>
+                              <span className={`font-semibold ${isRunning ? 'text-cyan-400' : 'text-gray-500'}`}>
+                                {isRunning && server.metrics ? `${server.metrics.memory} MB / ${server.memoryLimit} MB` : `0 MB / ${server.memoryLimit} MB`}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-gray-500 block uppercase font-bold">Uptime</span>
+                              <span className={`font-semibold ${isRunning ? 'text-emerald-400' : 'text-gray-500'} truncate block`}>
+                                {isRunning && server.metrics ? formatUptime(server.metrics.uptime) : 'Offline'}
+                              </span>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-[10px] text-gray-500 block uppercase font-bold">Uptime</span>
-                            <span className={`text-xs font-semibold ${isRunning ? 'text-emerald-400' : 'text-gray-500'} truncate block`}>
-                              {isRunning && server.metrics ? formatUptime(server.metrics.uptime) : '0s'}
+
+                          {/* Right: Shields Indicator and Action buttons */}
+                          <div className="flex items-center justify-between md:justify-end gap-4 shrink-0">
+                            <div className="flex items-center gap-1.5 text-[11px] text-gray-400 font-mono">
+                              <Shield className={`h-4 w-4 ${activeShieldCount > 0 ? 'text-amber-400 fill-amber-400/10' : 'text-slate-600'}`} />
+                              <span className={`font-bold ${activeShieldCount >= 3 ? 'text-emerald-400' : activeShieldCount > 0 ? 'text-amber-400' : 'text-gray-500'}`}>
+                                {activeShieldCount}/4 Protected
+                              </span>
+                            </div>
+
+                            {/* Actions inline */}
+                            <div className="flex items-center gap-2">
+                              {isRunning ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStopBot(server.id, e);
+                                    }}
+                                    title="Stop bot"
+                                    className="p-1.5 bg-rose-950/60 hover:bg-rose-900 border border-rose-500/20 text-rose-300 rounded-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                                  >
+                                    <Square className="h-3 w-3 fill-rose-400" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStartBot(server.id, e);
+                                    }}
+                                    disabled={isBuilding}
+                                    title="Start bot"
+                                    className="p-1.5 bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-500/20 text-emerald-300 rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                                  >
+                                    <Play className="h-3 w-3 fill-emerald-400" />
+                                  </button>
+                                )}
+
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRestartBot(server.id, e);
+                                  }}
+                                  title="Restart Container"
+                                  className="p-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 rounded-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                                >
+                                  <RotateCw className="h-3 w-3" />
+                                </button>
+
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteBot(server.id, server.name, e);
+                                  }}
+                                  title="Delete Bot"
+                                  className="p-1.5 bg-slate-900 hover:bg-rose-950/30 hover:text-rose-400 border border-slate-800 hover:border-rose-900/30 text-slate-400 rounded-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                            </div>
+
+                            <span className="text-[10px] text-cyan-400 font-bold group-hover:translate-x-1 transition-all flex items-center gap-0.5 font-mono ml-2">
+                              OPEN PANEL <ChevronRight className="h-3 w-3" />
                             </span>
                           </div>
                         </div>
-                      </div>
-
-                      {/* Card Actions Footer */}
-                      <div className="flex items-center justify-between border-t border-slate-900/60 pt-4 mt-auto">
-                        <div className="flex items-center gap-2">
-                          {isRunning ? (
-                            <button
-                              onClick={(e) => handleStopBot(server.id, e)}
-                              title="Stop bot"
-                              className="p-2 bg-rose-950/60 hover:bg-rose-900 border border-rose-500/20 text-rose-300 rounded-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
-                            >
-                              <Square className="h-3.5 w-3.5 fill-rose-400" />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={(e) => handleStartBot(server.id, e)}
-                              disabled={isBuilding}
-                              title="Start bot"
-                              className="p-2 bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-500/20 text-emerald-300 rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-                            >
-                              <Play className="h-3.5 w-3.5 fill-emerald-400" />
-                            </button>
-                          )}
-
-                          <button
-                            onClick={(e) => handleRestartBot(server.id, e)}
-                            title="Restart Container"
-                            className="p-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 rounded-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
-                          >
-                            <RotateCw className="h-3.5 w-3.5" />
-                          </button>
-
-                          <button
-                            onClick={(e) => handleDeleteBot(server.id, server.name, e)}
-                            title="Delete Bot"
-                            className="p-2 bg-slate-900 hover:bg-rose-950/30 hover:text-rose-400 border border-slate-800 hover:border-rose-900/30 text-slate-400 rounded-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-
-                        <span className="text-[10px] text-cyan-400 font-semibold group-hover:translate-x-1 transition-all flex items-center gap-0.5 font-mono">
-                          MANAGE COCKPIT <ChevronRight className="h-3 w-3" />
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </section>
+                      );
+                    })}
+                  </section>
+                )}
+              </>
             )}
           </div>
         )}
@@ -1988,6 +2611,13 @@ export default function App() {
                         <Sliders className="h-4 w-4 text-cyan-400" /> Bot Core Resources
                       </h3>
                       
+                      {currentUser?.role !== 'admin' && (
+                        <div className="bg-amber-950/20 border border-amber-500/25 p-3 rounded-xl text-xs text-amber-300 flex items-center gap-2">
+                          <Lock className="h-4 w-4 text-amber-400 shrink-0" />
+                          <span>Core resources (IP, Port, RAM, CPU) are locked and can only be updated by an Administrator.</span>
+                        </div>
+                      )}
+                      
                       {editError && (
                         <div className="bg-rose-950/40 border border-rose-500/20 p-3 rounded-xl text-xs text-rose-300">
                           {editError}
@@ -2000,9 +2630,10 @@ export default function App() {
                           <input 
                             type="text" 
                             required
+                            disabled={currentUser?.role !== 'admin'}
                             value={editBindingIp}
                             onChange={(e) => setEditBindingIp(e.target.value)}
-                            className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden"
+                            className={`w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden ${currentUser?.role !== 'admin' ? 'opacity-60 cursor-not-allowed' : ''}`}
                           />
                         </div>
 
@@ -2011,18 +2642,20 @@ export default function App() {
                           <input 
                             type="number" 
                             required
+                            disabled={currentUser?.role !== 'admin'}
                             value={editBindingPort}
                             onChange={(e) => setEditBindingPort(e.target.value)}
-                            className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden"
+                            className={`w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden ${currentUser?.role !== 'admin' ? 'opacity-60 cursor-not-allowed' : ''}`}
                           />
                         </div>
 
                         <div className="space-y-1.5">
                           <label className="text-gray-400 block font-semibold">Allocated Memory Limit (MB)</label>
                           <select 
+                            disabled={currentUser?.role !== 'admin'}
                             value={editMemoryLimit}
                             onChange={(e) => setEditMemoryLimit(parseInt(e.target.value, 10))}
-                            className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden cursor-pointer"
+                            className={`w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden cursor-pointer ${currentUser?.role !== 'admin' ? 'opacity-60 cursor-not-allowed' : ''}`}
                           >
                             <option value={128}>128 MB (Lite Bots)</option>
                             <option value={256}>256 MB (Standard bots)</option>
@@ -2034,9 +2667,10 @@ export default function App() {
                         <div className="space-y-1.5">
                           <label className="text-gray-400 block font-semibold">Allocated CPU Core Limit</label>
                           <select 
+                            disabled={currentUser?.role !== 'admin'}
                             value={editCpuLimit}
                             onChange={(e) => setEditCpuLimit(parseFloat(e.target.value))}
-                            className="w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden cursor-pointer"
+                            className={`w-full bg-[#080d19] border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-hidden cursor-pointer ${currentUser?.role !== 'admin' ? 'opacity-60 cursor-not-allowed' : ''}`}
                           >
                             <option value={0.25}>0.25 Cores</option>
                             <option value={0.5}>0.5 Cores</option>

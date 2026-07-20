@@ -404,6 +404,21 @@ httpd.serve_forever()
     }
   },
 
+  // Send interactive terminal commands to the process stdin
+  sendCommand(id: string, command: string): boolean {
+    const active = activeProcesses.get(id);
+    if (active && active.process && active.process.stdin) {
+      try {
+        active.process.stdin.write(command + '\n');
+        active.logStream.write(`\n> ${command}\n`);
+        return true;
+      } catch (err) {
+        console.error(`Error writing command to bot ${id}:`, err);
+      }
+    }
+    return false;
+  },
+
   // Restart the bot
   async restartServer(id: string): Promise<void> {
     await this.stopServer(id);
